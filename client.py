@@ -5,7 +5,7 @@ BOARD_WIDTH = 3
 BOARD_HEIGHT = 3
 
 
-WELCOME_MESSAGE = "Welcome to tictactoe press: \n1. To play\n2. For Instructions\n3. Exit:\n"
+WELCOME_MESSAGE = "Welcome to tictactoe press: \n1. To play with a human\n2. To play with a machine (lvl 1)\n3. To play with a machine (lvl 2)\n4. For Instructions\n5. Exit:\n"
 UNAVAILABLE_OPTION = "Unavailable option"
 GETTING_GAME_MESSAGE = "We're checking for game availability"
 INSTRUCTION_MESSAGE = "To play put a number between 1 and 9  that represent the grid"
@@ -59,8 +59,12 @@ def main_menu():
         if int_value == 1:
             loop()
         elif int_value == 2:
-            instructions()
+            easy_ia()
         elif int_value == 3:
+            hard_ia()
+        elif int_value == 4:
+            instructions()
+        elif int_value == 5:
             exit_game()
         else:
             print("Main main Not main main option", int_value)
@@ -115,9 +119,15 @@ def wait_for_play(current_game, turn):
         time.sleep(1)
 
 
-def loop():
+def loop(type_of_game="p2p"):
     print(WELCOME_MESSAGE)
-    create_or_join_request = requests.get("{}{}".format(BACKEND_URL, CREATE_OR_JOIN_ENDPOINT))
+    create_or_join_request = requests.get(
+        "{}{}?type={}".format(
+            BACKEND_URL,
+            CREATE_OR_JOIN_ENDPOINT,
+            type_of_game
+        )
+    )
     if create_or_join_request.status_code == 200:
         response_json = create_or_join_request.json()
         current_game = response_json.get('id', 0)
@@ -143,7 +153,7 @@ def loop():
             print_board(board)
             print(response_json.get('message', ''))
 
-            if not response_json.get("finished", True):
+            if not response_json.get("finished", True) and type_of_game == "p2p":
                 # The game is not ended
                 wait_for_play(current_game, turn)
                 response_json = get_board(current_game)
@@ -157,6 +167,14 @@ def loop():
         main_menu()
     else:
         print(UNAVAILABLE_SERVER)
+
+
+def easy_ia():
+    loop("lvl1")
+
+
+def hard_ia():
+    loop("lvl2")
 
 
 def instructions():

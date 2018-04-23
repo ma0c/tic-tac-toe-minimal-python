@@ -1,6 +1,8 @@
 import sys
 import json
 
+from random import choice
+
 from django.conf import settings
 from django.conf.urls import url
 from django.core.management import execute_from_command_line
@@ -70,6 +72,8 @@ class CreateOrJoin(View):
         new_game['turn'] = 0
         new_game['finished'] = False
         new_game['winner'] = ''
+        new_game['type'] = self.request.GET.get('type', 'p2p')
+
         return new_game
 
 
@@ -119,10 +123,13 @@ class MakeMove(View):
                         current_game['board'][move_index - 1] = player
                         current_game['last_player'] = player
                         current_game['turn'] += 1
+                        machine_player = "X" if player == "O" else "O"
+                        game_type = current_game.get('type', "p2p")
+
                         if self.check_winner(
                                 current_game['board'],
                                 player,
-                                move_index -1
+                                move_index - 1
                         ):
                             current_game['finished'] = True
                             current_game['winner'] = player
@@ -132,7 +139,29 @@ class MakeMove(View):
                             current_game['finished'] = True
                             response['finished'] = True
                             response['message'] = GAME_ENDED_WITH_DRAW
+                        else:
+                            if game_type == "lvl1":
+                                random_movement = self.make_random_move(current_game['board'])
+                                if random_movement >= 0:
+                                    current_game['board'][random_movement] = machine_player
+                                    current_game['turn'] += 1
+                                    current_game['last_player'] = machine_player
+                            elif game_type == "lvl2":
+                                pass
 
+                            if self.check_winner(
+                                    current_game['board'],
+                                    player,
+                                    move_index - 1
+                            ):
+                                current_game['finished'] = True
+                                current_game['winner'] = player
+                                response['finished'] = True
+                                response['message'] = GAME_ENDED_WITH_WINNER.format(player)
+                            elif self.check_game_end(current_game['turn']):
+                                current_game['finished'] = True
+                                response['finished'] = True
+                                response['message'] = GAME_ENDED_WITH_DRAW
                         response['status'] = 200
                         response['message'] = response.get('message', '')
                         response['board'] = current_game['board']
@@ -151,6 +180,13 @@ class MakeMove(View):
 
         response['finished'] = response.get('finished', False)
         return JsonResponse(response)
+
+    @staticmethod
+    def make_random_move(board):
+        possibles_movements = [i for i, x in enumerate(board) if x == " "]
+        if len(possibles_movements) > 0:
+            return choice(possibles_movements)
+        return -1
 
 
 class GameStatus(View):
