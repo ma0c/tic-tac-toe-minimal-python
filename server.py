@@ -1,18 +1,48 @@
+#!/usr/bin/env python
+
+import os
 import sys
 import json
 
+from django import setup
 from django.conf import settings
 from django.conf.urls import url
 from django.core.management import execute_from_command_line
 from django.http import JsonResponse
+from django.db import models
 from django.views.generic import View
 from django.views.decorators.csrf import csrf_exempt
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path[0] = os.path.dirname(BASE_DIR)
+APP_LABEL = os.path.basename(BASE_DIR)
+
 
 settings.configure(
     DEBUG=True,
     SECRET_KEY='A-random-secret-key!',
     ROOT_URLCONF=sys.modules[__name__],
+    INSTALLED_APPS=[
+        'django.contrib.contenttypes',
+        APP_LABEL,
+    ],
+    DATABASES={
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': os.path.join(BASE_DIR, 'db.sqlite3'),
+            }
+        }
 )
+
+setup()
+
+class Game(models.Model):
+    game = models.CharField(max_length=9)
+    author = models.TextField()
+
+    class Meta:
+        app_label = APP_LABEL
+
 
 INVALID_PAYLOAD = "Invalid Payload"
 INVALID_MOVE_MESSAGE = "Invalid Move"
