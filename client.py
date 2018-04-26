@@ -137,7 +137,7 @@ def loop(type_of_game="p2p"):
         board = [' ' for _ in range(9)]
         turn = response_json.get('turn', 0)
         print("You are {}".format(player))
-        if player == "O":
+        if player == "O" and turn % 2 == 0:
             wait_for_play(current_game, turn)
             response_json = get_board(current_game)
         while not response_json.get("finished", True):

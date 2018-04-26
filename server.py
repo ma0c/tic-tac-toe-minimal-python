@@ -1,5 +1,7 @@
 import sys
 import json
+import copy
+
 
 from random import choice
 
@@ -50,54 +52,122 @@ CHECK_FOR_WIN = {
 }
 
 
-class CreateOrJoin(View):
-    def get(self, request, *args, **kwargs):
-        if not GAMES or GAMES[-1]['turn'] > 1:
-            # There are no games
-            json_response = self.create_new_game()
-            json_response['id'] = len(GAMES)
-            GAMES.append(json_response)
-            json_response['last_player'] = "O"
-        else:
-            # Return last game
-            current_game = GAMES[-1]
-            json_response = current_game.copy()
-            json_response['last_player'] = "X"
-        print(GAMES)
-        return JsonResponse(json_response)
+class Game(object):
+    PLAY_WIN = "win"
+    PLAY_DRAW = "draw"
+    PLAY_OK = "play_ok"
 
-    def create_new_game(self):
-        new_game = dict()
-        new_game['board'] = [' ' for _ in range(9)]
-        new_game['turn'] = 0
-        new_game['finished'] = False
-        new_game['winner'] = ''
-        new_game['type'] = self.request.GET.get('type', 'p2p')
+    P2P_GAME = "p2p"
+    LVL1_GAME = "lvl1"
+    LVL2_GAME = "lvl2"
 
-        return new_game
+    id = 0
+    board = [' ' for _ in range(9)]
+    turn = 0
+    finished = False
+    winner = ""
+    game_type = "p2p"
+    last_player = ""
 
+    def make_move(self, player, position):
+        self.board[position] = player
+        self.last_player = player
+        self.turn += 1
+        if self.check_winner(position):
+            self.finished = True
+            self.winner = player
+            return self.PLAY_WIN
+        if self.check_game_end():
+            self.finished = True
+            return self.PLAY_DRAW
+        return self.PLAY_OK
 
-class MakeMove(View):
-
-    @csrf_exempt
-    def dispatch(self, request, *args, **kwargs):
-        return super(MakeMove, self).dispatch(request, *args, **kwargs)
-
-    @staticmethod
-    def check_winner(board, current_player, play):
+    def check_winner(self, play):
         for possible_win in CHECK_FOR_WIN[play]:
             is_a_win = True
             for slot in WINNER_MATRIX[possible_win]:
-                if board[slot] != current_player:
+                if self.board[slot] != self.last_player:
                     is_a_win = False
                     break
             if is_a_win:
                 return True
         return False
 
+    def check_game_end(self):
+        return self.turn >= 9
+
+    def to_json(self):
+        return {
+            'id': self.id,
+            'board': self.board,
+            'turn': self.turn,
+            'finished': self.finished,
+            'winner': self.winner,
+            'game_type': self.game_type,
+            'last_player': self.last_player,
+        }
+
+    def copy(self):
+        return copy.copy(self)
+
+    def __str__(self):
+        return str(self.to_json())
+
+
+class GameAgent(object):
+
     @staticmethod
-    def check_game_end(turn):
-        return turn >= 9
+    def make_move(board):
+        pass
+
+
+class RandomAgent(GameAgent):
+
+    @staticmethod
+    def make_move(board):
+        possibles_movements = [i for i, x in enumerate(board) if x == " "]
+        if len(possibles_movements) > 0:
+            return choice(possibles_movements)
+        return None
+
+
+class CreateOrJoin(View):
+    def get(self, request, *args, **kwargs):
+        if not GAMES or GAMES[-1].turn > 1:
+            # There are no games
+            json_response = self.create_new_game()
+            json_response.id = len(GAMES)
+            GAMES.append(json_response)
+            json_response.last_player = "O"
+        else:
+            # Return last game
+            current_game = GAMES[-1]
+            json_response = current_game.copy()
+            # json_response = current_game  # .copy()
+            json_response.last_player = "X"
+        print(json_response)
+        return JsonResponse(json_response.to_json())
+
+    def create_new_game(self):
+        new_game = Game()
+        new_game.board = [' ' for _ in range(9)]
+        new_game.turn = 0
+        new_game.finished = False
+        new_game.winner = ''
+        new_game.type = self.request.GET.get('type', 'p2p')
+
+        return new_game
+
+
+class MakeMove(View):
+
+    def add_status_flags_to_response(self, response, game_status, player):
+        if game_status == Game.PLAY_WIN:
+            response['finished'] = True
+            response['message'] = GAME_ENDED_WITH_WINNER.format(player)
+        elif game_status == Game.PLAY_DRAW:
+            response['finished'] = True
+            response['message'] = GAME_ENDED_WITH_DRAW
 
     def post(self, request, *args, **kwargs):
         body = json.loads(request.body)
@@ -115,58 +185,32 @@ class MakeMove(View):
             try:
                 game_index = int(game_index)
                 current_game = GAMES[game_index]
-                if current_game['board'][move_index - 1] == " ":
-                    if current_game['last_player'] == player:
+                if current_game.board[move_index - 1] == " ":
+                    if current_game.last_player == player:
                         response['status'] = 400
                         response['message'] = TURN_INVALID
                     else:
-                        current_game['board'][move_index - 1] = player
-                        current_game['last_player'] = player
-                        current_game['turn'] += 1
-                        machine_player = "X" if player == "O" else "O"
-                        game_type = current_game.get('type', "p2p")
+                        game_status = current_game.make_move(player, move_index -1)
+                        game_type = current_game.type
+                        print(current_game.board)
+                        self.add_status_flags_to_response(response, game_status, player)
 
-                        if self.check_winner(
-                                current_game['board'],
-                                player,
-                                move_index - 1
-                        ):
-                            current_game['finished'] = True
-                            current_game['winner'] = player
-                            response['finished'] = True
-                            response['message'] = GAME_ENDED_WITH_WINNER.format(player)
-                        elif self.check_game_end(current_game['turn']):
-                            current_game['finished'] = True
-                            response['finished'] = True
-                            response['message'] = GAME_ENDED_WITH_DRAW
-                        else:
-                            if game_type == "lvl1":
-                                random_movement = self.make_random_move(current_game['board'])
-                                if random_movement >= 0:
-                                    current_game['board'][random_movement] = machine_player
-                                    current_game['turn'] += 1
-                                    current_game['last_player'] = machine_player
-                            elif game_type == "lvl2":
+                        if game_type != Game.P2P_GAME and game_status == Game.PLAY_OK:
+                            machine_player = "X" if player == "O" else "O"
+                            if game_type == Game.LVL1_GAME:
+                                random_movement = RandomAgent.make_move(current_game.board)
+
+                                if random_movement is not None:
+                                    game_status = current_game.make_move(machine_player, random_movement)
+                                    self.add_status_flags_to_response(response, game_status, machine_player)
+                            elif game_type == Game.LVL2_GAME:
                                 pass
 
-                            if self.check_winner(
-                                    current_game['board'],
-                                    player,
-                                    move_index - 1
-                            ):
-                                current_game['finished'] = True
-                                current_game['winner'] = player
-                                response['finished'] = True
-                                response['message'] = GAME_ENDED_WITH_WINNER.format(player)
-                            elif self.check_game_end(current_game['turn']):
-                                current_game['finished'] = True
-                                response['finished'] = True
-                                response['message'] = GAME_ENDED_WITH_DRAW
                         response['status'] = 200
                         response['message'] = response.get('message', '')
-                        response['board'] = current_game['board']
-                        response['last_player'] = current_game['last_player']
-                        response['turn'] = current_game['turn']
+                        response['board'] = current_game.board
+                        response['last_player'] = current_game.last_player
+                        response['turn'] = current_game.turn
                 else:
                     response['status'] = 400
                     response['message'] = INVALID_MOVE_MESSAGE
@@ -180,13 +224,6 @@ class MakeMove(View):
 
         response['finished'] = response.get('finished', False)
         return JsonResponse(response)
-
-    @staticmethod
-    def make_random_move(board):
-        possibles_movements = [i for i, x in enumerate(board) if x == " "]
-        if len(possibles_movements) > 0:
-            return choice(possibles_movements)
-        return -1
 
 
 class GameStatus(View):
@@ -202,7 +239,7 @@ class GameStatus(View):
                 game_index = int(game_index)
                 game = GAMES[game_index]
                 response['status'] = 200
-                response['turn'] = game['turn']
+                response['turn'] = game.turn
             except ValueError:
                 response['status'] = 400
                 response['message'] = INVALID_PAYLOAD
@@ -225,12 +262,12 @@ class GetBoard(View):
                 game_index = int(game_index)
                 game = GAMES[game_index]
                 response['status'] = 200
-                response['turn'] = game['turn']
-                response['board'] = game['board']
-                response['finished'] = game['finished']
-                if game['finished']:
-                    if game['winner']:
-                        response['message'] = GAME_ENDED_WITH_WINNER.format(game['winner'])
+                response['turn'] = game.turn
+                response['board'] = game.board
+                response['finished'] = game.finished
+                if game.finished:
+                    if game.winner:
+                        response['message'] = GAME_ENDED_WITH_WINNER.format(game.winner)
                     else:
                         response['message'] = GAME_ENDED_WITH_DRAW
                 response['message'] = response.get('message', '')
