@@ -161,66 +161,96 @@ class CreateOrJoin(View):
 
 class MakeMove(View):
 
-    def add_status_flags_to_response(self, response, game_status, player):
+    @staticmethod
+    def get_game_over_and_game_over_message(game_status, player):
         if game_status == Game.PLAY_WIN:
-            response['finished'] = True
-            response['message'] = GAME_ENDED_WITH_WINNER.format(player)
+            return True, GAME_ENDED_WITH_WINNER.format(player)
         elif game_status == Game.PLAY_DRAW:
-            response['finished'] = True
-            response['message'] = GAME_ENDED_WITH_DRAW
+            return True, GAME_ENDED_WITH_DRAW
+
+        return False, ""
+
+    @staticmethod
+    def validate_move(game_index, move_index, player):
+        response = {
+            'status': 400,
+            'message': ''
+        }
+        is_valid_move = False
+        if game_index is None or move_index is None or player is None:
+            response['message'] = INVALID_PAYLOAD
+
+        try:
+            game_index = int(game_index)
+            current_game = GAMES[game_index]
+            if current_game.last_player == player:
+                response['message'] = TURN_INVALID
+            else:
+                if current_game.board[move_index - 1] != " ":
+                    response['message'] = INVALID_MOVE_MESSAGE
+                else:
+                    response['status'] = 200
+                    is_valid_move = True
+        except ValueError:
+            response['message'] = INVALID_MOVE_MESSAGE
+
+        except IndexError:
+            response['message'] = GAME_NOT_FOUND_MESSAGE
+
+        return is_valid_move, response
+
+    def make_machine_move(self, game_type, human_player, current_game):
+        machine_player = "X" if human_player == "O" else "O"
+        if game_type == Game.LVL1_GAME:
+            random_movement = RandomAgent.make_move(current_game.board)
+            if random_movement is not None:
+                return machine_player, current_game.make_move(machine_player, random_movement)
+
+        elif game_type == Game.LVL2_GAME:
+            pass
+
+    @staticmethod
+    def game_over_update(message):
+        return{
+            'message': message,
+            'finished': True
+        }
 
     def post(self, request, *args, **kwargs):
         body = json.loads(request.body)
         print(body)
-        response = dict()
+
         game_index = body.get('id', None)
         move_index = body.get('move_index', None)
         player = body.get('player', None)
 
-        if game_index is None or move_index is None or player is None:
-            response['status'] = 400
-            response['message'] = INVALID_PAYLOAD
+        valid_move, response = self.validate_move(game_index, move_index, player)
+        if valid_move:
+            current_game = GAMES[int(game_index)]
+            game_status = current_game.make_move(player, move_index -1)
+            game_type = current_game.type
+            print(current_game.board)
 
-        else:
-            try:
-                game_index = int(game_index)
-                current_game = GAMES[game_index]
-                if current_game.board[move_index - 1] == " ":
-                    if current_game.last_player == player:
-                        response['status'] = 400
-                        response['message'] = TURN_INVALID
-                    else:
-                        game_status = current_game.make_move(player, move_index -1)
-                        game_type = current_game.type
-                        print(current_game.board)
-                        self.add_status_flags_to_response(response, game_status, player)
+            response['board'] = current_game.board
+            response['last_player'] = current_game.last_player
+            response['turn'] = current_game.turn
 
-                        if game_type != Game.P2P_GAME and game_status == Game.PLAY_OK:
-                            machine_player = "X" if player == "O" else "O"
-                            if game_type == Game.LVL1_GAME:
-                                random_movement = RandomAgent.make_move(current_game.board)
+            game_over, message = self.get_game_over_and_game_over_message(game_status, player)
+            if game_over:
+                response.update(self.game_over_update(message))
+                return JsonResponse(response)
 
-                                if random_movement is not None:
-                                    game_status = current_game.make_move(machine_player, random_movement)
-                                    self.add_status_flags_to_response(response, game_status, machine_player)
-                            elif game_type == Game.LVL2_GAME:
-                                pass
+            if game_type != Game.P2P_GAME:
+                machine_player, game_status = self.make_machine_move(game_index, player, current_game)
 
-                        response['status'] = 200
-                        response['message'] = response.get('message', '')
-                        response['board'] = current_game.board
-                        response['last_player'] = current_game.last_player
-                        response['turn'] = current_game.turn
-                else:
-                    response['status'] = 400
-                    response['message'] = INVALID_MOVE_MESSAGE
+                response['board'] = current_game.board
+                response['last_player'] = current_game.last_player
+                response['turn'] = current_game.turn
 
-            except ValueError:
-                response['status'] = 400
-                response['message'] = INVALID_MOVE_MESSAGE
-            except IndexError:
-                response['status'] = 400
-                response['message'] = GAME_NOT_FOUND_MESSAGE
+                game_over, message = self.get_game_over_and_game_over_message(game_status, machine_player)
+                if game_over:
+                    response.update(self.game_over_update(message))
+                    return JsonResponse(response)
 
         response['finished'] = response.get('finished', False)
         return JsonResponse(response)
